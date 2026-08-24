@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+
+  "name": "Google Form AI Solver",
+
+  "version": "1.0.0",
+
+  "description": "AI assistant that reads Google Forms and helps answer questions",
+
+  "permissions": ["activeTab", "scripting", "storage"],
+
+  "host_permissions": ["https://docs.google.com/forms/*", "http://localhost:8000/*"],
+
+  "action": {
+    "default_title": "Form Solver"
+  },
+
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["https://docs.google.com/forms/*"],
+      "js": ["src/content/form-reader.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
