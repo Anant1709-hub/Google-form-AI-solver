@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "../dist-extension",
+    "moduleResolution": "node",
+    "types": ["chrome"]
+  },
+
+  "include": ["src/**/*.ts"]
+}
