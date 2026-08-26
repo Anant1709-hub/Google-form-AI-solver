@@ -1,5 +1,6 @@
 import type { GoogleFormData, FormQuestion } from '../shared/llm.types';
 import type { FormAnswer, FormAnswers } from '../shared/llm.types';
+import type { FormImage } from '../shared/llm.types';
 
 function cleanText(value: string | null | undefined): string {
   return (value ?? '')
@@ -326,12 +327,12 @@ function isRequired(container: Element): boolean {
 /**
  * Extract all questions.
  */
-function scanForm(): GoogleFormData {
+async function scanForm(): Promise<GoogleFormData> {
   const containers = findQuestionContainers();
 
   const questions: FormQuestion[] = [];
 
-  containers.forEach((container, index) => {
+  for (const [index, container] of containers.entries()) {
     const question = extractQuestionText(container);
 
     const type = detectQuestionType(container);
@@ -347,11 +348,17 @@ function scanForm(): GoogleFormData {
     }
 
     /*
-     * Ignore things that don't actually look
-     * like questions.
+     * Extract images and convert them
+     * to Base64.
+     */
+    const images = await extractImages(container);
+
+    /*
+     * Ignore things that don't actually
+     * look like questions.
      */
     if (!question || (type === 'unknown' && options.length === 0)) {
-      return;
+      continue;
     }
 
     questions.push({
@@ -360,8 +367,9 @@ function scanForm(): GoogleFormData {
       type,
       options,
       required: isRequired(container),
+      images,
     });
-  });
+  }
 
   /*
    * Try to find the form title.
@@ -397,16 +405,14 @@ function handleKeyboardShortcut(event: KeyboardEvent): void {
   }
 }
 
-function solveCurrentForm(): void {
+async function solveCurrentForm(): Promise<void> {
   console.log('[Form Solver] ===== SOLVING FORM =====');
 
-  const form = scanForm();
+  const form = await scanForm();
 
   console.log('[Form Solver] FORM DATA:');
 
   console.log(JSON.stringify(form, null, 2));
-
-  console.log('[Form Solver] Sending form to service worker...');
 
   chrome.runtime.sendMessage(
     {
@@ -416,18 +422,8 @@ function solveCurrentForm(): void {
     (response) => {
       console.log('[Form Solver] Received response:', response);
 
-      if (chrome.runtime.lastError) {
-        console.error('[Form Solver] Runtime error:', chrome.runtime.lastError.message);
-
-        return;
-      }
-
       if (response?.message === 'FILL_FORM') {
-        console.log('[Form Solver] Filling form...');
-
         fillForm(response.answers);
-      } else {
-        console.error('[Form Solver] Unexpected response:', response);
       }
     },
   );
@@ -814,6 +810,97 @@ function fillDropdown(container: Element, answer: string): boolean {
 
 function fillScale(container: Element, answer: string): boolean {
   return fillMultipleChoice(container, answer);
+}
+
+async function extractImages(container: Element): Promise<FormImage[]> {
+  const images: FormImage[] = [];
+
+  const imageElements = container.querySelectorAll('img');
+
+  for (const image of imageElements) {
+    const src = image.getAttribute('src');
+
+    if (!src) {
+      continue;
+    }
+
+    const alt = image.getAttribute('alt') ?? '';
+
+    try {
+      console.log('[Form Solver] Converting image to Base64:', src);
+
+      const base64 = await imageToBase64(src);
+
+      images.push({
+        src: base64,
+        alt: cleanText(alt),
+      });
+
+      console.log('[Form Solver] Image converted successfully');
+    } catch (error) {
+      console.error('[Form Solver] Failed to convert image:', error);
+    }
+  }
+
+  return images;
+}
+
+async function imageToBase64(src: string): Promise<string> {
+  const response = await fetch(src);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch image: ${response.status}`);
+  }
+
+  const blob = await response.blob();
+
+  const bitmap = await createImageBitmap(blob);
+
+  // Maximum dimensions
+  const MAX_WIDTH = 1600;
+  const MAX_HEIGHT = 1600;
+
+  let width = bitmap.width;
+  let height = bitmap.height;
+
+  // Preserve aspect ratio
+  const scale = Math.min(1, MAX_WIDTH / width, MAX_HEIGHT / height);
+
+  width = Math.round(width * scale);
+  height = Math.round(height * scale);
+
+  console.log('[Form Solver] Original image:', bitmap.width, 'x', bitmap.height);
+
+  console.log('[Form Solver] Resized image:', width, 'x', height);
+
+  // Create resized image
+  const canvas = document.createElement('canvas');
+
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    throw new Error('Could not create canvas context');
+  }
+
+  context.drawImage(bitmap, 0, 0, width, height);
+
+  /*
+   * JPEG quality:
+   * 1.0 = highest quality / largest
+   * 0.7 = smaller
+   *
+   * 0.8 is a good starting point.
+   */
+  const base64 = canvas.toDataURL('image/jpeg', 0.8);
+
+  console.log('[Form Solver] Compressed image size:', Math.round(base64.length / 1024), 'KB');
+
+  bitmap.close();
+
+  return base64;
 }
 
 initializeFormReader();

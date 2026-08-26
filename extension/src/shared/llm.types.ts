@@ -11,6 +11,7 @@ export interface FormQuestion {
     | 'unknown';
   options: string[];
   required: boolean;
+  images: FormImage[];
 }
 
 export interface GoogleFormData {
@@ -25,4 +26,9 @@ export interface FormAnswer {
 
 export interface FormAnswers {
   answers: FormAnswer[];
+}
+
+export interface FormImage {
+  src: string;
+  alt: string;
 }
