@@ -17,3 +17,12 @@ export interface GoogleFormData {
   title: string;
   questions: FormQuestion[];
 }
+
+export interface FormAnswer {
+  questionIndex: number;
+  answer: string | string[];
+}
+
+export interface FormAnswers {
+  answers: FormAnswer[];
+}
