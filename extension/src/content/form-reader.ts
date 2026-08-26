@@ -382,13 +382,31 @@ function scanForm(): GoogleFormData {
 function initializeFormReader(): void {
   console.log('[Form Solver] Content script loaded');
 
-  console.log('[Form Solver] URL:', window.location.href);
+  console.log('[Form Solver] Press Ctrl + Shift + F to solve the form.');
+
+  document.addEventListener('keydown', handleKeyboardShortcut);
+}
+
+function handleKeyboardShortcut(event: KeyboardEvent): void {
+  if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'f') {
+    event.preventDefault();
+
+    console.log('[Form Solver] Keyboard shortcut detected!');
+
+    solveCurrentForm();
+  }
+}
+
+function solveCurrentForm(): void {
+  console.log('[Form Solver] ===== SOLVING FORM =====');
 
   const form = scanForm();
 
   console.log('[Form Solver] FORM DATA:');
 
   console.log(JSON.stringify(form, null, 2));
+
+  console.log('[Form Solver] Sending form to service worker...');
 
   chrome.runtime.sendMessage(
     {
@@ -398,8 +416,18 @@ function initializeFormReader(): void {
     (response) => {
       console.log('[Form Solver] Received response:', response);
 
+      if (chrome.runtime.lastError) {
+        console.error('[Form Solver] Runtime error:', chrome.runtime.lastError.message);
+
+        return;
+      }
+
       if (response?.message === 'FILL_FORM') {
+        console.log('[Form Solver] Filling form...');
+
         fillForm(response.answers);
+      } else {
+        console.error('[Form Solver] Unexpected response:', response);
       }
     },
   );
