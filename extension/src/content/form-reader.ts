@@ -429,6 +429,69 @@ async function solveCurrentForm(): Promise<void> {
   );
 }
 
+function clearQuestion(container: Element): void {
+  const type = detectQuestionType(container);
+
+  console.log('[Form Solver] Clearing question:', type);
+
+  switch (type) {
+    case 'checkbox':
+      clearCheckboxes(container);
+      break;
+
+    case 'short-answer':
+      clearTextInput(container);
+      break;
+
+    case 'paragraph':
+      clearTextInput(container);
+      break;
+
+    default:
+      console.warn('[Form Solver] Cannot clear unsupported type:', type);
+  }
+}
+
+function clearTextInput(container: Element): void {
+  const inputs = Array.from(container.querySelectorAll('input, textarea'));
+
+  for (const input of inputs) {
+    const element = input as HTMLInputElement | HTMLTextAreaElement;
+
+    if (element.value) {
+      console.log('[Form Solver] Clearing text:', element.value);
+
+      element.value = '';
+
+      element.dispatchEvent(
+        new Event('input', {
+          bubbles: true,
+        }),
+      );
+
+      element.dispatchEvent(
+        new Event('change', {
+          bubbles: true,
+        }),
+      );
+    }
+  }
+}
+
+function clearCheckboxes(container: Element): void {
+  const checkboxes = Array.from(container.querySelectorAll('[role="checkbox"]'));
+
+  console.log('[Form Solver] Checkboxes found:', checkboxes.length);
+
+  for (const checkbox of checkboxes) {
+    if (checkbox.getAttribute('aria-checked') === 'true') {
+      console.log('[Form Solver] Unchecking:', getOptionText(checkbox));
+
+      (checkbox as HTMLElement).click();
+    }
+  }
+}
+
 function fillForm(answers: FormAnswer[]): void {
   console.log('[Form Solver] ===== FILL FORM =====');
 
@@ -462,6 +525,8 @@ function fillForm(answers: FormAnswer[]): void {
     console.log('[Form Solver] Question text:', cleanText(container.textContent));
 
     const type = detectQuestionType(container);
+
+    clearQuestion(container);
 
     console.log('[Form Solver] Detected type:', type);
 
