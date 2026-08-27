@@ -21,7 +21,7 @@ export interface GoogleFormData {
 
 export interface FormAnswer {
   questionIndex: number;
-  answer: string | string[];
+  answer: string[];
 }
 
 export interface FormAnswers {

@@ -47,19 +47,22 @@ async def solve_text_batch(
 
                         Return ONLY JSON in this format:
 
-                        {{
-                        "answers": [
-                            {{
-                            "questionIndex": 0,
-                            "answer": "correct answer"
-                            }}
-                        ]
-                        }}
+                        {"answers": [
+                                {
+                                    "questionIndex": 0,
+                                    "answer": ["correct answer"]
+                                }
+                            ]
+                        }
 
                         Important:
                         - questionIndex must be an integer.
+                        - Use the exact questionIndex provided in the input.
                         - Return exactly one answer for every question.
-                        - Use the questionIndex provided in the input.
+                        - The "answer" field MUST always be an array of strings.
+                        - For questions with multiple correct answers, include each answer as a separate item in the array.
+                        - For questions with one correct answer, return an array containing one item.
+                        - Copy multiple-choice and checkbox options exactly from the provided options.
                         - Do not return markdown.
                         - Do not wrap the JSON in ```.
 
@@ -136,10 +139,15 @@ def build_image_content(
         Return ONLY JSON:
 
         {
-        "questionIndex": 0,
-        "answer": "correct answer"
+            "questionIndex": 0,
+            "answer": ["correct answer"]
         }
 
+        Rules:
+        - questionIndex must exactly match the question index provided.
+        - answer MUST always be an array of strings.
+        - For multiple correct answers, include each answer as a separate item.
+        - Copy the option text exactly.
         Do not return markdown.
         """,
     })
