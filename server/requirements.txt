@@ -2,3 +2,4 @@ uvicorn
 fastapi
 dotenv
 groq
+google-genai
