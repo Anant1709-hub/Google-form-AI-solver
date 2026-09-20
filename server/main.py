@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Any
 from groq import Groq
 from google import genai
+from rate_limiter import (wait_for_gemini_rate_limit,wait_for_image_rate_limit)
 
 load_dotenv()
 
@@ -129,6 +130,8 @@ async def solve_text_batch_gemini(
         indent=2,
     )
 
+    await wait_for_gemini_rate_limit()
+    
     chat_completion = await make_gemini_request(question=questions_json)
     raw_answer = chat_completion.output_text
 
@@ -136,6 +139,8 @@ async def solve_text_batch_gemini(
         result = json.loads(raw_answer)
     except json.JSONDecodeError:
         print("[Gemini] Invalid JSON. Retrying once...")
+
+        await wait_for_gemini_rate_limit()
 
         response = await make_gemini_request(questions_json)
         raw_answer = response.output_text
@@ -275,9 +280,9 @@ def build_image_content(
 def solve_image_question(
     question: dict[str, Any],
 ):
-    content = build_image_content(
-        question
-    )
+    wait_for_image_rate_limit()
+
+    content = build_image_content(question)
 
     chat_completion = client1.chat.completions.create(
         model="qwen/qwen3.8-27b",
@@ -291,7 +296,7 @@ def solve_image_question(
             "type": "json_object"
         },
         max_completion_tokens=512,
-        temperature=0
+        temperature=0,
     )
 
     raw_answer = (
@@ -300,10 +305,8 @@ def solve_image_question(
         .message
         .content
     )
-    result = json.loads(raw_answer)
 
-    # print("[Server] Image question result:", result)
-    return result
+    return json.loads(raw_answer)
 
 
 @app.post("/solve")
@@ -334,7 +337,7 @@ async def solve(form: dict[str, Any]):
     )
 
     # print(form)
-    BATCH_SIZE = 3
+    BATCH_SIZE = 5
 
     text_answers = []
     for i in range(
@@ -350,7 +353,7 @@ async def solve(form: dict[str, Any]):
             f"{i // BATCH_SIZE + 1}"
         )
 
-        answers = await solve_text_batch(batch)
+        answers = await solve_text_batch_gemini(batch)
         text_answers.extend(answers)
 
     image_answers = []
@@ -361,7 +364,7 @@ async def solve(form: dict[str, Any]):
             question["index"],
         )
 
-        answer = solve_image_question(question)
+        answer =  solve_image_question(question)
 
         image_answers.append(answer)
 
