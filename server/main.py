@@ -23,6 +23,12 @@ app.add_middleware(
 API_KEY = os.getenv("GROQ_API_KEY")
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 
+pdf_url=""
+with open("pdf_uri.txt", "r") as f:
+    PDF_URI = f.read().strip()
+    pdf_url = PDF_URI
+
+
 client1 = Groq(api_key=API_KEY)
 client2 = genai.Client(api_key=gemini_api_key)
 
@@ -309,75 +315,180 @@ def solve_image_question(
     return json.loads(raw_answer)
 
 
+async def make_gemini_request_with_pdf(
+    questions: list[dict[str, Any]]
+):
+    question_content = []
+
+    for question in questions:
+        question_content.append({
+            "type": "text",
+            "text": f"""
+                        Question Index: {question["index"]}
+                        Question: {question["question"]}
+                        Type: {question["type"]}
+                        Options:
+                        {json.dumps(question["options"], ensure_ascii=False)}
+                    """
+        })
+
+        for image in question.get("images", []):
+            question_content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": image["src"],
+                },
+            })
+
+    prompt = """
+                You are solving an expert-level multiple-choice exam.
+
+                The attached PDF is the reference material for answering the questions.
+
+                For each question, independently determine the correct answer.
+
+                IMPORTANT:
+                - Use the attached PDF as reference material.
+                - Carefully inspect any attached question images.
+                - Evaluate every option against the exact wording of the question.
+                - Prefer the option that is specifically and directly correct.
+                - Reject options that are only partially correct or overly broad.
+                - "All of the above" is correct ONLY if every individual option is correct.
+                - For True/False questions, determine the truth of the exact statement.
+                - Do not assume a statement is true merely because it sounds plausible.
+                - Before giving the final answer, independently verify your selected option.
+
+                Return ONLY JSON in this format:
+
+                {
+                    "answers": [
+                        {
+                            "questionIndex": 0,
+                            "answer": ["correct answer"]
+                        }
+                    ]
+                }
+
+                Rules:
+                - Return exactly one answer for every question.
+                - questionIndex must exactly match the provided question index.
+                - answer MUST always be an array of strings.
+                - For multiple correct answers, include each answer separately.
+                - For one correct answer, return an array containing one item.
+                - Copy the option text exactly.
+                - Do not return markdown.
+                - Do not wrap the JSON in ```.
+
+                Questions:
+                """
+
+    question_content.append({
+        "type": "text",
+        "text": prompt,
+    })
+
+    response = client2.interactions.create(
+        model="gemini-3.5-flash-lite",
+
+        input=[
+            {
+                "type": "document",
+                "uri": pdf_url,
+                "mime_type": "application/pdf",
+            },
+            *question_content,
+        ],
+
+        response_format={
+            "type": "text",
+            "mime_type": "application/json",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "answers": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "questionIndex": {
+                                    "type": "integer"
+                                },
+                                "answer": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            },
+                            "required": [
+                                "questionIndex",
+                                "answer"
+                            ]
+                        }
+                    }
+                },
+                "required": [
+                    "answers"
+                ]
+            }
+        },
+
+        generation_config={
+            "thinking_level": "high",
+            "max_output_tokens": 4096,
+        },
+    )
+
+    return response
+
+
+async def solve_text_batch_gemini(
+    questions: list[dict[str, Any]]
+):
+
+    await wait_for_gemini_rate_limit()
+    
+    response = await make_gemini_request_with_pdf(
+        questions=questions
+    )
+
+    raw_answer = response.output_text
+    data = json.loads(raw_answer)
+
+    return data["answers"]
+
+
 @app.post("/solve")
 async def solve(form: dict[str, Any]):
-    # print(form)
-    # print(API_KEY)
 
     questions = form["questions"]
 
-    text_questions = []
-    image_questions = []
-
-    for question in questions:
-        images = question.get("images", [])
-        if images:
-            image_questions.append(question)
-        else:
-            text_questions.append(question)
-
-    print(
-        "[Server] Text questions:",
-        len(text_questions),
-    )
-
-    print(
-        "[Server] Image questions:",
-        len(image_questions),
-    )
-
-    # print(form)
     BATCH_SIZE = 5
 
-    text_answers = []
-    for i in range(
-        0,
-        len(text_questions),
-        BATCH_SIZE,
-    ):
+    answers = []
 
-        batch = text_questions[i:i + BATCH_SIZE]
+    for i in range(0, len(questions), BATCH_SIZE):
+
+        batch = questions[i:i + BATCH_SIZE]
 
         print(
-            f"[Server] Solving text batch "
+            f"[Server] Solving batch "
             f"{i // BATCH_SIZE + 1}"
         )
 
-        answers = await solve_text_batch_gemini(batch)
-        text_answers.extend(answers)
-
-    image_answers = []
-    for question in image_questions:
-
-        print(
-            "[Server] Solving image question:",
-            question["index"],
+        batch_answers = await solve_text_batch_gemini(
+            questions=batch
         )
 
-        answer =  solve_image_question(question)
+        answers.extend(batch_answers)
 
-        image_answers.append(answer)
-
-    # models = client.models.list()
-    # for model in models.data:
-    #     print(model.id)
-    
-    answers = (text_answers + image_answers)
-    answers.sort(key=lambda x: x["questionIndex"])
+    answers.sort(
+        key=lambda x: x["questionIndex"]
+    )
 
     print("[Server] FINAL ANSWERS:")
-
     print(answers)
+
     return {
         "message": "FILL_FORM",
         "answers": answers,
