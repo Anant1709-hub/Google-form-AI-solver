@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
 
-  "name": "Google Form AI Solver",
+  "name": "Avery",
   "version": "1.0.0",
 
   "description": "AI assistant that reads Google Forms and helps answer questions",
@@ -11,7 +11,7 @@
   "host_permissions": ["https://docs.google.com/forms/*", "http://localhost:8000/*"],
 
   "action": {
-    "default_title": "Form Solver"
+    "default_title": "Avery"
   },
 
   "background": {
