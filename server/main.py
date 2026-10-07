@@ -36,54 +36,55 @@ client2 = genai.Client(api_key=gemini_api_key)
 async def root():
     return {"message": "API is running"}
 
-async def make_gemini_request(question:json):
+async def make_gemini_request(question: str):
     chat_completion = client2.interactions.create(
         model="gemini-3.5-flash-lite",
 
         input=f"""
-                You are solving an expert-level multiple-choice exam.
+You are solving an expert-level multiple-choice exam.
 
-                For each question, independently determine the correct answer.
+For each question, independently determine the correct answer.
 
-                IMPORTANT:
-                - Do not select an option merely because it is related to the topic.
-                - Evaluate every option against the exact wording of the question.
-                - Prefer the option that is specifically and directly correct.
-                - Reject options that are only partially correct, overly broad, or describe
-                a related concept rather than what the question asks.
-                - "All of the above" is correct ONLY if every individual option is correct.
-                - For True/False questions, determine the truth of the exact statement.
-                - Do not assume a statement is true merely because it sounds scientifically
-                plausible.
-                - For scientific questions, use your underlying domain knowledge and
-                distinguish established mechanisms from associations.
-                - Before giving the final answer, independently verify your selected option.
+IMPORTANT:
+- Do not select an option merely because it is related to the topic.
+- Evaluate every option against the exact wording of the question.
+- Prefer the option that is specifically and directly correct.
+- Reject options that are only partially correct, overly broad, or describe
+  a related concept rather than what the question asks.
+- "All of the above" is correct ONLY if every individual option is correct.
+- For True/False questions, determine the truth of the exact statement.
+- Do not assume a statement is true merely because it sounds scientifically plausible.
+- For scientific questions, use your underlying domain knowledge and
+  distinguish established mechanisms from associations.
+- Before giving the final answer, independently verify your selected option.
 
-                Return ONLY JSON in this format:
+Return ONLY JSON in this format:
 
-                {{"answers": [
-                        {{
-                            "questionIndex": 0,
-                            "answer": ["correct answer"]
-                        }}
-                    ]
-                }}
+{{
+    "answers": [
+        {{
+            "questionIndex": 0,
+            "answer": ["correct answer"]
+        }}
+    ]
+}}
 
-                Important:
-                - questionIndex must be an integer.
-                - Use the exact questionIndex provided in the input.
-                - Return exactly one answer for every question.
-                - The "answer" field MUST always be an array of strings.
-                - For questions with multiple correct answers, include each answer as a separate item in the array.
-                - For questions with one correct answer, return an array containing one item.
-                - Copy multiple-choice and checkbox options exactly from the provided options.
-                - Do not return markdown.
-                - Do not wrap the JSON in ```.
+Important:
+- questionIndex must be an integer.
+- Use the exact questionIndex provided in the input.
+- Return exactly one answer for every question.
+- The "answer" field MUST always be an array of strings.
+- For questions with multiple correct answers, include each answer as a separate item.
+- For questions with one correct answer, return an array containing one item.
+- Copy multiple-choice and checkbox options exactly from the provided options.
+- Do not return markdown.
+- Do not wrap the JSON in ```.
 
-                Questions:
+Questions:
 
-                {question}
-                """,
+{question}
+""",
+
         response_format={
             "type": "text",
             "mime_type": "application/json",
@@ -117,8 +118,9 @@ async def make_gemini_request(question:json):
                 ]
             }
         },
+
         generation_config={
-            "thinking_level": "high",
+            "thinking_level": "medium",
             "max_output_tokens": 4096,
         }
     )
@@ -127,7 +129,7 @@ async def make_gemini_request(question:json):
 
 
 async def solve_text_batch_gemini(
-    questions: list[dict[str, Any]],
+    questions: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
 
     questions_json = json.dumps(
@@ -136,27 +138,51 @@ async def solve_text_batch_gemini(
         indent=2,
     )
 
+    print("\n========== GEMINI BATCH ==========")
+    print(questions_json)
+    print("==================================\n")
+
     await wait_for_gemini_rate_limit()
-    
-    chat_completion = await make_gemini_request(question=questions_json)
-    raw_answer = chat_completion.output_text
+
+    response = await make_gemini_request(
+        question=questions_json
+    )
+
+    raw_answer = response.output_text
+
+    print("\n========== GEMINI RESPONSE ==========")
+    print(repr(raw_answer))
+    print("======================================\n")
 
     try:
         result = json.loads(raw_answer)
-    except json.JSONDecodeError:
-        print("[Gemini] Invalid JSON. Retrying once...")
+
+    except json.JSONDecodeError as e:
+
+        print("[Gemini] JSON parsing failed!")
+        print("[Gemini] Error:", e)
+        print("[Gemini] Retrying...")
 
         await wait_for_gemini_rate_limit()
 
-        response = await make_gemini_request(questions_json)
+        response = await make_gemini_request(
+            question=questions_json
+        )
+
         raw_answer = response.output_text
 
-        result = json.loads(raw_answer)
+        print("\n========== GEMINI RETRY ==========")
+        print(repr(raw_answer))
+        print("==================================\n")
 
-    # print("[Server] Text batch result:", result)
+        try:
+            result = json.loads(raw_answer)
+
+        except json.JSONDecodeError:
+            print("[Gemini] Retry also failed.")
+            raise
 
     return result["answers"]
-
 
 async def solve_text_batch(
     questions: list[dict[str, Any]],
@@ -314,148 +340,6 @@ def solve_image_question(
 
     return json.loads(raw_answer)
 
-
-async def make_gemini_request_with_pdf(
-    questions: list[dict[str, Any]]
-):
-    question_content = []
-
-    for question in questions:
-        question_content.append({
-            "type": "text",
-            "text": f"""
-                        Question Index: {question["index"]}
-                        Question: {question["question"]}
-                        Type: {question["type"]}
-                        Options:
-                        {json.dumps(question["options"], ensure_ascii=False)}
-                    """
-        })
-
-        for image in question.get("images", []):
-            question_content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": image["src"],
-                },
-            })
-
-    prompt = """
-                You are solving an expert-level multiple-choice exam.
-
-                The attached PDF is the reference material for answering the questions.
-
-                For each question, independently determine the correct answer.
-
-                IMPORTANT:
-                - Use the attached PDF as reference material.
-                - Carefully inspect any attached question images.
-                - Evaluate every option against the exact wording of the question.
-                - Prefer the option that is specifically and directly correct.
-                - Reject options that are only partially correct or overly broad.
-                - "All of the above" is correct ONLY if every individual option is correct.
-                - For True/False questions, determine the truth of the exact statement.
-                - Do not assume a statement is true merely because it sounds plausible.
-                - Before giving the final answer, independently verify your selected option.
-
-                Return ONLY JSON in this format:
-
-                {
-                    "answers": [
-                        {
-                            "questionIndex": 0,
-                            "answer": ["correct answer"]
-                        }
-                    ]
-                }
-
-                Rules:
-                - Return exactly one answer for every question.
-                - questionIndex must exactly match the provided question index.
-                - answer MUST always be an array of strings.
-                - For multiple correct answers, include each answer separately.
-                - For one correct answer, return an array containing one item.
-                - Copy the option text exactly.
-                - Do not return markdown.
-                - Do not wrap the JSON in ```.
-
-                Questions:
-                """
-
-    question_content.append({
-        "type": "text",
-        "text": prompt,
-    })
-
-    response = client2.interactions.create(
-        model="gemini-3.5-flash-lite",
-
-        input=[
-            {
-                "type": "document",
-                "uri": pdf_url,
-                "mime_type": "application/pdf",
-            },
-            *question_content,
-        ],
-
-        response_format={
-            "type": "text",
-            "mime_type": "application/json",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "answers": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "questionIndex": {
-                                    "type": "integer"
-                                },
-                                "answer": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string"
-                                    }
-                                }
-                            },
-                            "required": [
-                                "questionIndex",
-                                "answer"
-                            ]
-                        }
-                    }
-                },
-                "required": [
-                    "answers"
-                ]
-            }
-        },
-
-        generation_config={
-            "thinking_level": "high",
-            "max_output_tokens": 4096,
-        },
-    )
-
-    return response
-
-
-async def solve_text_batch_gemini(
-    questions: list[dict[str, Any]]
-):
-
-    await wait_for_gemini_rate_limit()
-    
-    response = await make_gemini_request_with_pdf(
-        questions=questions
-    )
-
-    raw_answer = response.output_text
-    data = json.loads(raw_answer)
-
-    return data["answers"]
 
 
 @app.post("/solve")
