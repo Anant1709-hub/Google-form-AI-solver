@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 gemini_api_key = os.getenv("GEMINI_API_KEY")
-print("GEMINI_API_KEY:", gemini_api_key)
+
 client2 = genai.Client(api_key=gemini_api_key)
 
 pdf_file = client2.files.upload(
