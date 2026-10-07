@@ -23,11 +23,6 @@ app.add_middleware(
 API_KEY = os.getenv("GROQ_API_KEY")
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 
-pdf_url=""
-with open("pdf_uri.txt", "r") as f:
-    PDF_URI = f.read().strip()
-    pdf_url = PDF_URI
-
 
 client1 = Groq(api_key=API_KEY)
 client2 = genai.Client(api_key=gemini_api_key)
